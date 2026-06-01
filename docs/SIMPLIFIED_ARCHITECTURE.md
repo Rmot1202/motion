@@ -286,10 +286,8 @@ See `requirements.txt` for pinned versions.
 ## Future Enhancements
 
 - [ ] Historical data graphing (Plotly)
-- [ ] Email/Slack notifications on temperature alert
 - [ ] Multi-furnace support
 - [ ] Data export (CSV, Excel)
-- [ ] Mobile-responsive improvements
 - [ ] API for external integrations (if needed)
 
 ---
