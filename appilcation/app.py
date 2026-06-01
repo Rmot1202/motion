@@ -30,6 +30,7 @@ PROFILES_DIR.mkdir(parents=True, exist_ok=True)
 DEVICE_IP = config.DEVICE_IP
 GRAPH_WINDOW_SECONDS = getattr(config, "GRAPH_WINDOW_SECONDS", 300)
 GRAPH_HEIGHT = getattr(config, "GRAPH_HEIGHT", 400)
+BASE_PATH = os.getenv("DASH_BASE_PATHNAME", "/")
 
 DEFAULT_CONFIG = {
     "furnace_number": getattr(config, "DEFAULT_FURNACE_NUMBER", 1),
@@ -45,6 +46,7 @@ app = dash.Dash(
     __name__,
     external_stylesheets=[dbc.themes.BOOTSTRAP],
     suppress_callback_exceptions=True,
+    url_base_pathname=BASE_PATH,
 )
 app.title = "Thermocouple Dashboard"
 
@@ -79,12 +81,7 @@ def list_profile_options():
             furnace = cfg.get("furnace_number")
             if furnace is None:
                 continue
-            options.append(
-                {
-                    "label": f"Furnace {int(furnace)}",
-                    "value": path.name,
-                }
-            )
+            options.append({"label": f"Furnace {int(furnace)}", "value": path.name})
         except Exception:
             continue
     return options
@@ -152,34 +149,9 @@ def make_figure(store, cfg):
     ch2 = store.get("ch2", [])
 
     fig = go.Figure()
-
-    fig.add_trace(
-        go.Scatter(
-            x=times,
-            y=ch0,
-            mode="lines",
-            name="Channel 1",
-            line=dict(color="#3b82f6", width=2),
-        )
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=times,
-            y=ch1,
-            mode="lines",
-            name="Channel 2",
-            line=dict(color="#ef4444", width=2),
-        )
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=times,
-            y=ch2,
-            mode="lines",
-            name="Channel 3",
-            line=dict(color="#a855f7", width=2),
-        )
-    )
+    fig.add_trace(go.Scatter(x=times, y=ch0, mode="lines", name="Channel 1", line=dict(color="#3b82f6", width=2)))
+    fig.add_trace(go.Scatter(x=times, y=ch1, mode="lines", name="Channel 2", line=dict(color="#ef4444", width=2)))
+    fig.add_trace(go.Scatter(x=times, y=ch2, mode="lines", name="Channel 3", line=dict(color="#a855f7", width=2)))
 
     fig.add_hline(y=cfg["setpoint"], line_dash="dot", line_color="#ef4444", line_width=1)
     fig.add_hline(y=cfg["lower_bound"], line_dash="dot", line_color="#f59e0b", line_width=1)
@@ -222,9 +194,7 @@ app.layout = html.Div(
         dbc.Modal(
             [
                 dbc.ModalHeader(dbc.ModalTitle("Save current configuration?")),
-                dbc.ModalBody(
-                    "Save As will save the latest recording and the current furnace configuration."
-                ),
+                dbc.ModalBody("Save As will save the latest recording and the current furnace configuration."),
                 dbc.ModalFooter(
                     [
                         dbc.Button("Cancel", id="save-modal-cancel", color="secondary", className="me-2"),
@@ -260,6 +230,22 @@ app.layout = html.Div(
                         html.Div(id="clock", className="clock"),
                     ],
                 ),
+            ],
+        ),
+
+        html.Div(
+            className="ccam-hero",
+            children=[
+                html.Div(
+                    className="ccam-hero-content",
+                    children=[
+                        html.Div("Thermocouple Monitor", className="ccam-hero-title"),
+                        html.Div(
+                            "Commonwealth Center for Advanced Manufacturing • Real-time furnace monitoring and recording",
+                            className="ccam-hero-subtitle",
+                        ),
+                    ],
+                )
             ],
         ),
 
@@ -332,10 +318,7 @@ app.layout = html.Div(
                                 ),
                                 dcc.Graph(
                                     id="live-graph",
-                                    figure=make_figure(
-                                        {"times": [], "ch0": [], "ch1": [], "ch2": []},
-                                        loaded_cfg,
-                                    ),
+                                    figure=make_figure({"times": [], "ch0": [], "ch1": [], "ch2": []}, loaded_cfg),
                                     config={"displayModeBar": False, "responsive": True},
                                     className="live-graph",
                                 ),
@@ -385,7 +368,14 @@ app.layout = html.Div(
                                     className="action-row",
                                     children=[
                                         dbc.Button("Start Recording", id="btn-start", color="dark", className="action-btn", n_clicks=0),
-                                        dbc.Button("Stop Recording", id="btn-stop", color="light", className="action-btn action-btn-secondary", n_clicks=0, disabled=True),
+                                        dbc.Button(
+                                            "Stop Recording",
+                                            id="btn-stop",
+                                            color="light",
+                                            className="action-btn action-btn-secondary",
+                                            n_clicks=0,
+                                            disabled=True,
+                                        ),
                                         dbc.Button("Save As...", id="btn-save-as", color="primary", className="action-btn", n_clicks=0),
                                     ],
                                 ),
@@ -706,7 +696,6 @@ def toggle_save_modal(btn_save, btn_cancel, btn_confirm, is_open):
 @app.callback(
     [
         Output("save-file-store", "data"),
-        Output("save-status", "children"),
         Output("profile-select", "options"),
     ],
     Input("save-modal-confirm", "n_clicks"),
@@ -722,7 +711,7 @@ def toggle_save_modal(btn_save, btn_cancel, btn_confirm, is_open):
 def prepare_save_as_with_config(n, furnace, setpoint, lower, upper, y_min, y_max, sampling):
     files = sorted(RECORDINGS_DIR.glob("TUS_*.txt"), key=lambda x: x.stat().st_mtime, reverse=True)
     if not files:
-        return {"filename": None, "content": ""}, "No recording file available.", list_profile_options()
+        return {"filename": None, "content": ""}, list_profile_options()
 
     cfg = build_live_cfg(furnace, setpoint, lower, upper, y_min, y_max, sampling)
     save_config(cfg)
@@ -734,51 +723,56 @@ def prepare_save_as_with_config(n, furnace, setpoint, lower, upper, y_min, y_max
     with open(latest, "r", encoding="utf-8") as f:
         content = f.read()
 
-    return (
-        {"filename": latest.name, "content": content},
-        "Opening save dialog...",
-        list_profile_options(),
-    )
+    return {"filename": latest.name, "content": content}, list_profile_options()
 
 
 clientside_callback(
     """
     async function(fileData) {
         if (!fileData || !fileData.content) {
-            return window.dash_clientside.no_update;
+            return "No recording file available.";
         }
 
-        if (!window.showSaveFilePicker) {
-            return "This browser does not support Save As.";
-        }
+        const content = fileData.content || "";
+        const filename = fileData.filename || "thermocouple_recording.txt";
 
         try {
-            const handle = await window.showSaveFilePicker({
-                suggestedName: fileData.filename || "thermocouple_recording.txt",
-                types: [
-                    {
-                        description: "Text files",
-                        accept: {
-                            "text/plain": [".txt"]
+            if (window.showSaveFilePicker) {
+                const handle = await window.showSaveFilePicker({
+                    suggestedName: filename,
+                    types: [
+                        {
+                            description: "Text files",
+                            accept: { "text/plain": [".txt"] }
                         }
-                    }
-                ]
-            });
+                    ]
+                });
 
-            const writable = await handle.createWritable();
-            await writable.write(fileData.content || "");
-            await writable.close();
-
-            return "Recording and furnace configuration saved successfully.";
+                const writable = await handle.createWritable();
+                await writable.write(content);
+                await writable.close();
+                return "Recording and furnace configuration saved successfully.";
+            }
         } catch (err) {
             if (err && err.name === "AbortError") {
                 return "Save cancelled.";
             }
-            return "Save failed: " + (err && err.message ? err.message : err);
         }
+
+        const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+
+        return "Chrome Save As was unavailable, so the file was downloaded instead.";
     }
     """,
-    Output("save-status", "children", allow_duplicate=True),
+    Output("save-status", "children"),
     Input("save-file-store", "data"),
     prevent_initial_call=True,
 )
