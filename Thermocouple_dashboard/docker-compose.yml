@@ -1,0 +1,14 @@
+services:
+  thermocouple-dashboard:
+    build: .
+    command: python -m appilcation.app
+    ports:
+      - "8050:8050"
+    volumes:
+      - ./recordings:/app/recordings
+      - ./profiles:/app/profiles
+      - ./thermocouple_config.json:/app/thermocouple_config.json
+    environment:
+      - PYTHONUNBUFFERED=1
+    container_name: thermocouple-dashboard
+    restart: unless-stopped

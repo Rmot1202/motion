@@ -1,0 +1,1 @@
+"""Thermocouple dashboard application package."""

@@ -1,0 +1,7 @@
+__pycache__/
+appilcation/__pycache__/
+recordings/
+profiles/
+reference/
+*.pyc
+FigmaSetup.exe
