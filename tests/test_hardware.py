@@ -13,7 +13,7 @@ Usage:
 
 import sys
 import time
-from hardware import MCCThermocouple
+from appilcation.hardware import MCCThermocouple
 
 
 def print_header(text):
@@ -37,14 +37,8 @@ def test_basic_connection(device):
     print_status("ℹ", f"Board Number: {device_info['board_num']}")
     
     print("\nAttempting connection...")
-    if device.connect():
-        print_status("✓", "Device connected successfully!")
-        return True
-    else:
-        print_status("✗", "Failed to connect to device")
-        if device.last_error:
-            print_status("⚠", f"Error: {device.last_error}")
-        return False
+    assert device.connect()
+    print_status("✓", "Device connected successfully!")
 
 
 def test_single_read(device):
@@ -53,13 +47,8 @@ def test_single_read(device):
     
     print("Reading channel 0...")
     temp = device.read_single_channel(channel=0)
-    
-    if temp is not None:
-        print_status("✓", f"Channel 0: {temp:.2f}°C")
-        return True
-    else:
-        print_status("✗", "Failed to read channel 0")
-        return False
+    assert temp is not None
+    print_status("✓", f"Channel 0: {temp:.2f}°C")
 
 
 def test_multi_read(device):
@@ -70,18 +59,9 @@ def test_multi_read(device):
     print(f"Reading channels {channels}...")
     
     temps = device.read_channels(channels)
-    
-    if temps and all(t is not None for t in temps):
-        for i, temp in enumerate(temps):
-            print_status("✓", f"Channel {i}: {temp:.2f}°C")
-        return True
-    else:
-        print_status("✗", "Failed to read all channels")
-        if temps:
-            for i, temp in enumerate(temps):
-                if temp is None:
-                    print_status("⚠", f"Channel {i}: Read failed")
-        return False
+    assert temps and all(t is not None for t in temps)
+    for i, temp in enumerate(temps):
+        print_status("✓", f"Channel {i}: {temp:.2f}°C")
 
 
 def test_continuous_read(device, duration=10, interval=1):
@@ -102,14 +82,10 @@ def test_continuous_read(device, duration=10, interval=1):
             temps = device.read_channels([0, 1, 2])
             read_count += 1
             
-            if temps and all(t is not None for t in temps):
-                success_count += 1
-                status = "✓ OK"
-                print(f"{elapsed:6.1f}  | {temps[0]:9.2f} | {temps[1]:9.2f} | {temps[2]:9.2f} | {status}")
-            else:
-                status = "✗ FAIL"
-                temps_str = ", ".join([f"{t:.2f}" if t else "ERROR" for t in temps])
-                print(f"{elapsed:6.1f}  | {temps_str} | {status}")
+            assert temps and all(t is not None for t in temps)
+            success_count += 1
+            status = "✓ OK"
+            print(f"{elapsed:6.1f}  | {temps[0]:9.2f} | {temps[1]:9.2f} | {temps[2]:9.2f} | {status}")
             
             time.sleep(interval)
     
@@ -118,8 +94,7 @@ def test_continuous_read(device, duration=10, interval=1):
     
     print("-" * 60)
     print(f"\nResults: {success_count}/{read_count} reads successful ({100*success_count/read_count:.1f}%)")
-    
-    return success_count == read_count
+    assert success_count == read_count
 
 
 def test_all_channels(device):
@@ -128,17 +103,12 @@ def test_all_channels(device):
     
     print("Reading all 8 channels...")
     temps = device.read_all_channels()
-    
-    if temps:
-        for i, temp in enumerate(temps):
-            if temp is not None:
-                print_status("✓", f"Channel {i}: {temp:.2f}°C")
-            else:
-                print_status("⚠", f"Channel {i}: Not connected or error")
-        return True
-    else:
-        print_status("✗", "Failed to read channels")
-        return False
+    assert temps
+    for i, temp in enumerate(temps):
+        if temp is not None:
+            print_status("✓", f"Channel {i}: {temp:.2f}°C")
+        else:
+            print_status("⚠", f"Channel {i}: Not connected or error")
 
 
 def run_full_test(device_ip=None, board_num=0):
@@ -165,10 +135,10 @@ def run_full_test(device_ip=None, board_num=0):
     for test_name, test_func in tests:
         try:
             if test_name == "Continuous Read (10s)":
-                result = test_func(device, duration=10, interval=1)
+                test_func(device, duration=10, interval=1)
             else:
-                result = test_func(device)
-            results.append((test_name, result))
+                test_func(device)
+            results.append((test_name, True))
         except Exception as e:
             print_status("✗", f"Test error: {e}")
             results.append((test_name, False))
