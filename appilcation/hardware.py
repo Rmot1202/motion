@@ -1,11 +1,38 @@
+"""Read temperatures from an MCC E-TC thermocouple device.
+
+The wrapper keeps the dashboard usable when the MCC library or hardware is
+unavailable by falling back to simulated channel values.
+"""
+
 import time
-from mcculw.enums import TempScale
+
+try:
+    from mcculw.enums import TempScale
+except Exception:
+    class TempScale:
+        """Fallback temperature scale constants when MCC UL is missing."""
+
+        CELSIUS = "CELSIUS"
 
 
 class MCCThermocouple:
-    """Interface to MCC E-TC Ethernet thermocouple device."""
+    """Interface to an MCC E-TC Ethernet thermocouple device.
+
+    Attributes:
+        connected (bool): Whether the device is currently usable.
+        simulation_mode (bool): Whether reads are simulated.
+        last_error (str | None): Last connection or read error.
+    """
 
     def __init__(self, device_ip=None, device_id=None, board_num=0):
+        """Initialize connection metadata and load the MCC library.
+
+        Args:
+            device_ip (str, optional): Device IP address for display.
+            device_id (str, optional): Optional external device id.
+            board_num (int, optional): InstaCal board number to read.
+        """
+
         self.device_ip = device_ip
         self.device_id = device_id
         self.board_num = board_num
@@ -24,11 +51,19 @@ class MCCThermocouple:
             self.ul = None
 
     def _log_once(self, message):
+        """Print a repeated hardware error only when it changes."""
+
         if message != self._last_logged_error:
             print(message)
             self._last_logged_error = message
 
     def connect(self):
+        """Mark the configured MCC board as available.
+
+        Returns:
+            bool: ``True`` when the MCC library is available.
+        """
+
         if not self.ul:
             self.connected = False
             self.simulation_mode = True
@@ -55,6 +90,8 @@ class MCCThermocouple:
             return False
 
     def _simulate(self, count):
+        """Create deterministic-looking fallback channel readings."""
+
         try:
             import numpy as np
             noise = np.random.normal(0, 0.5, count)
@@ -66,6 +103,15 @@ class MCCThermocouple:
         return [temp + n for temp, n in zip(base_temps, noise)]
 
     def read_channels(self, channels=None):
+        """Read one or more thermocouple channels.
+
+        Args:
+            channels (list[int], optional): MCC channel numbers to read.
+
+        Returns:
+            list[float | None]: Temperatures for requested channels.
+        """
+
         if channels is None:
             channels = [0, 1, 2]
 
@@ -106,13 +152,23 @@ class MCCThermocouple:
             return self._simulate(len(channels))
 
     def read_single_channel(self, channel=0):
+        """Read a single thermocouple channel."""
+
         values = self.read_channels([channel])
         return values[0] if values else None
 
     def read_all_channels(self):
+        """Read all eight MCC E-TC channels."""
+
         return self.read_channels(channels=[0, 1, 2, 3, 4, 5, 6, 7])
 
     def disconnect(self):
+        """Close the logical hardware connection.
+
+        Returns:
+            bool: Always ``True`` after the connection state is cleared.
+        """
+
         if not self.connected:
             return True
         self.connected = False
@@ -121,6 +177,8 @@ class MCCThermocouple:
         return True
 
     def get_device_info(self):
+        """Return device metadata for status displays."""
+
         return {
             "device_id": self.device_id,
             "device_ip": self.device_ip,
@@ -133,6 +191,8 @@ class MCCThermocouple:
         }
 
     def test_read(self):
+        """Run a console smoke test for channels 0 through 2."""
+
         print("\n=== MCC E-TC Hardware Test ===")
         print(f"Device IP: {self.device_ip}")
         print(f"Board Number: {self.board_num}")

@@ -1,16 +1,34 @@
+"""Persist and retrieve furnace dashboard profiles."""
+
 import json
 import os
 from datetime import datetime
 
 
 class ProfileManager:
-    """Manages machine profile storage and retrieval."""
+    """Manage JSON profile storage and retrieval.
+
+    Attributes:
+        profiles_dir (str): Directory that stores profile JSON files.
+    """
 
     def __init__(self, profiles_dir="./profiles"):
+        """Create the manager and ensure the profile directory exists."""
+
         self.profiles_dir = profiles_dir
         os.makedirs(profiles_dir, exist_ok=True)
 
     def save_profile(self, profile_name, config):
+        """Save a profile configuration as JSON.
+
+        Args:
+            profile_name (str): Requested profile name.
+            config (dict): Dashboard configuration to persist.
+
+        Returns:
+            str: Path to the saved profile file.
+        """
+
         safe_name = "".join(c for c in profile_name if c.isalnum() or c in ("-", "_"))
         if not safe_name:
             safe_name = f"profile_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -24,6 +42,13 @@ class ProfileManager:
         return filepath
 
     def load_profile(self, profile_name):
+        """Load a profile by sanitized name.
+
+        Returns:
+            dict | None: Profile configuration, or ``None`` when missing
+            or unreadable.
+        """
+
         safe_name = "".join(c for c in profile_name if c.isalnum() or c in ("-", "_"))
         filepath = os.path.join(self.profiles_dir, f"{safe_name}.json")
 
@@ -40,6 +65,8 @@ class ProfileManager:
             return None
 
     def list_profiles(self):
+        """List saved profile names without the JSON extension."""
+
         profiles = []
         if os.path.exists(self.profiles_dir):
             for filename in os.listdir(self.profiles_dir):
@@ -48,6 +75,12 @@ class ProfileManager:
         return sorted(profiles)
 
     def delete_profile(self, profile_name):
+        """Delete a saved profile when it exists.
+
+        Returns:
+            bool: ``True`` when a profile file was removed.
+        """
+
         safe_name = "".join(c for c in profile_name if c.isalnum() or c in ("-", "_"))
         filepath = os.path.join(self.profiles_dir, f"{safe_name}.json")
 

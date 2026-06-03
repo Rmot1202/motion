@@ -1,3 +1,5 @@
+"""Regression tests for profile persistence and filename sanitization."""
+
 import json
 from pathlib import Path
 
@@ -5,6 +7,8 @@ from appilcation.profiles import ProfileManager
 
 
 def test_save_and_load_profile(tmp_path):
+    """Saved profiles should round-trip their configuration payload."""
+
     profiles_dir = tmp_path / "profiles"
     manager = ProfileManager(str(profiles_dir))
 
@@ -20,6 +24,8 @@ def test_save_and_load_profile(tmp_path):
 
 
 def test_list_and_delete_profiles(tmp_path):
+    """Profiles should be listed in sorted order and deletable by name."""
+
     manager = ProfileManager(str(tmp_path))
     manager.save_profile("first", {"furnace_number": 1})
     manager.save_profile("second_profile", {"furnace_number": 2})
@@ -31,11 +37,15 @@ def test_list_and_delete_profiles(tmp_path):
 
 
 def test_load_missing_profile_returns_none(tmp_path):
+    """Missing profile files should return ``None``."""
+
     manager = ProfileManager(str(tmp_path))
     assert manager.load_profile("does_not_exist") is None
 
 
 def test_load_invalid_profile_returns_none(tmp_path):
+    """Invalid JSON profile files should return ``None``."""
+
     manager = ProfileManager(str(tmp_path))
     invalid_path = tmp_path / "broken.json"
     invalid_path.write_text("{ not valid json }", encoding="utf-8")
@@ -44,6 +54,8 @@ def test_load_invalid_profile_returns_none(tmp_path):
 
 
 def test_profile_name_sanitization_uses_safe_filename(tmp_path):
+    """Unsafe profile characters should be stripped from filenames."""
+
     manager = ProfileManager(str(tmp_path))
     filepath = manager.save_profile("Profile!@#$%^&*() Name", {"furnace_number": 5})
 

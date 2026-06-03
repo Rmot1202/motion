@@ -1,3 +1,5 @@
+"""Default thermocouple dashboard configuration values."""
+
 DEVICE_NAME = "MCC E-TC-001"
 DEFAULT_FURNACE_NUMBER = 1
 DEVICE_IP = "192.168.10.101"

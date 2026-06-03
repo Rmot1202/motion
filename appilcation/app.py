@@ -1,3 +1,10 @@
+"""Run the Dash thermocouple dashboard.
+
+The module builds the dashboard layout, manages furnace configuration
+profiles, reads MCC E-TC thermocouple values, and records TUS-compatible
+temperature logs.
+"""
+
 import os
 import json
 from datetime import datetime
@@ -55,6 +62,12 @@ hardware = MCCThermocouple(device_ip=DEVICE_IP)
 
 
 def load_config():
+    """Load the persisted dashboard configuration.
+
+    Returns:
+        dict: The saved configuration merged over the application defaults.
+    """
+
     try:
         with open(CONFIG_FILE, "r", encoding="utf-8") as f:
             loaded = json.load(f)
@@ -66,11 +79,23 @@ def load_config():
 
 
 def save_config(cfg):
+    """Persist the active dashboard configuration.
+
+    Args:
+        cfg (dict): Configuration values to write as JSON.
+    """
+
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2)
 
 
 def list_profile_options():
+    """Build Dash dropdown options for saved furnace profiles.
+
+    Returns:
+        list[dict]: Options with display labels and profile filenames.
+    """
+
     options = []
     for path in sorted(PROFILES_DIR.glob("*.json")):
         if path.name == CONFIG_FILE.name:
@@ -88,6 +113,15 @@ def list_profile_options():
 
 
 def load_profile_file(filename):
+    """Load a furnace profile by filename.
+
+    Args:
+        filename (str): JSON profile filename under ``PROFILES_DIR``.
+
+    Returns:
+        dict: Profile values merged over the application defaults.
+    """
+
     path = PROFILES_DIR / filename
     if not path.exists():
         return DEFAULT_CONFIG.copy()
@@ -99,10 +133,21 @@ def load_profile_file(filename):
 
 
 def fmt_temp(value):
+    """Format a temperature value for display."""
+
     return f"{value:.3f}" if isinstance(value, (int, float)) else "--"
 
 
 def simulate_values(count=3):
+    """Generate fallback thermocouple values when hardware is unavailable.
+
+    Args:
+        count (int, optional): Number of channels to simulate.
+
+    Returns:
+        list[float]: Simulated channel temperatures.
+    """
+
     try:
         return hardware._simulate(count)
     except Exception:
@@ -111,6 +156,12 @@ def simulate_values(count=3):
 
 
 def read_live_temps():
+    """Read three thermocouple channels with simulation fallback.
+
+    Returns:
+        list[float | None]: Channel 1 through 3 temperatures.
+    """
+
     temps = hardware.read_channels([0, 1, 2]) if hardware.connected else simulate_values(3)
     if temps is None:
         temps = simulate_values(3)
@@ -122,6 +173,12 @@ def read_live_temps():
 
 
 def build_live_cfg(furnace, setpoint, lower, upper, y_min, y_max, sampling):
+    """Normalize live form values into a dashboard configuration.
+
+    Invalid sampling values and inverted y-axis bounds are reset to the
+    configured defaults.
+    """
+
     cfg = {
         "furnace_number": int(furnace) if furnace is not None else DEFAULT_CONFIG["furnace_number"],
         "setpoint": float(setpoint) if setpoint is not None else DEFAULT_CONFIG["setpoint"],
@@ -143,6 +200,16 @@ def build_live_cfg(furnace, setpoint, lower, upper, y_min, y_max, sampling):
 
 
 def make_figure(store, cfg):
+    """Create the live temperature chart.
+
+    Args:
+        store (dict): Time-series values stored by Dash.
+        cfg (dict): Active furnace and graph configuration.
+
+    Returns:
+        plotly.graph_objects.Figure: Configured temperature chart.
+    """
+
     times = store.get("times", [])
     ch0 = store.get("ch0", [])
     ch1 = store.get("ch1", [])
@@ -488,6 +555,8 @@ app.layout = html.Div(
     Input("cfg-sampling", "value"),
 )
 def update_interval_from_sampling(sampling):
+    """Convert a sampling frequency in hertz to a Dash interval."""
+
     hz = float(sampling) if sampling not in (None, "") else DEFAULT_CONFIG["sampling_frequency"]
     hz = max(0.1, hz)
     return int(1000 / hz)
@@ -508,6 +577,8 @@ def update_interval_from_sampling(sampling):
     prevent_initial_call=True,
 )
 def load_selected_profile(profile_filename):
+    """Populate dashboard controls from the selected profile."""
+
     if not profile_filename:
         raise PreventUpdate
 
@@ -556,6 +627,12 @@ def load_selected_profile(profile_filename):
     State("recording-store", "data"),
 )
 def update_temps(n, furnace, setpoint, lower, upper, y_min, y_max, sampling, store, rec_data):
+    """Refresh the dashboard with new temperature readings.
+
+    The callback updates display values, graph data, hardware status, and
+    appends a row to the active recording file when recording is enabled.
+    """
+
     now_dt = datetime.now()
     now = now_dt.strftime("%H:%M:%S")
     safe_temps = read_live_temps()
@@ -651,6 +728,8 @@ def update_temps(n, furnace, setpoint, lower, upper, y_min, y_max, sampling, sto
     prevent_initial_call=True,
 )
 def handle_recording(start_n, stop_n, furnace, rec_data):
+    """Start or stop TUS recording based on the triggering button."""
+
     if not ctx.triggered_id:
         raise PreventUpdate
 
@@ -685,6 +764,8 @@ def handle_recording(start_n, stop_n, furnace, rec_data):
     prevent_initial_call=True,
 )
 def toggle_save_modal(btn_save, btn_cancel, btn_confirm, is_open):
+    """Open or close the Save As confirmation modal."""
+
     trigger = ctx.triggered_id
     if trigger == "btn-save-as":
         return True
@@ -709,6 +790,8 @@ def toggle_save_modal(btn_save, btn_cancel, btn_confirm, is_open):
     prevent_initial_call=True,
 )
 def prepare_save_as_with_config(n, furnace, setpoint, lower, upper, y_min, y_max, sampling):
+    """Prepare the latest recording and persist the active profile."""
+
     files = sorted(RECORDINGS_DIR.glob("TUS_*.txt"), key=lambda x: x.stat().st_mtime, reverse=True)
     if not files:
         return {"filename": None, "content": ""}, list_profile_options()

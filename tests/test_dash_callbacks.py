@@ -1,3 +1,5 @@
+"""Regression tests for Dash callbacks with file-writing side effects."""
+
 import json
 import types
 from pathlib import Path
@@ -6,6 +8,8 @@ from appilcation import app as dash_app
 
 
 def test_handle_recording_start_and_stop(monkeypatch, tmp_path):
+    """Recording controls should create and then stop a TUS log."""
+
     monkeypatch.setattr(dash_app, "ctx", types.SimpleNamespace(triggered_id="btn-start"))
     rec_data = {"active": False, "filename": None}
 
@@ -40,6 +44,8 @@ def test_handle_recording_start_and_stop(monkeypatch, tmp_path):
 
 
 def test_update_temps_writes_recording_and_simulation_banner(monkeypatch, tmp_path):
+    """Temperature updates should record rows and show simulation state."""
+
     temp_data = [12.3, 13.4, 14.5]
     monkeypatch.setattr(dash_app, "read_live_temps", lambda: temp_data)
     monkeypatch.setattr(dash_app, "RECORDINGS_DIR", tmp_path)
