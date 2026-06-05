@@ -25,7 +25,6 @@ except ImportError:
     from hardware import MCCThermocouple
     from profiles import ProfileManager
 
-
 STORAGE_PATH = Path(os.getenv("STORAGE_PATH", "./storage"))
 RECORDINGS_DIR = STORAGE_PATH / "recordings"
 PROFILES_DIR = STORAGE_PATH / "profiles"
@@ -40,6 +39,7 @@ GRAPH_HEIGHT = getattr(config, "GRAPH_HEIGHT", 400)
 BASE_PATH = os.getenv("DASH_BASE_PATHNAME", "/")
 
 DEFAULT_CONFIG = {
+    "furnace_id": getattr(config, "DEFAULT_FURNACE_ID", "1"),
     "furnace_number": getattr(config, "DEFAULT_FURNACE_NUMBER", 1),
     "setpoint": getattr(config, "DEFAULT_SETPOINT", 75.0),
     "lower_bound": getattr(config, "DEFAULT_LOWER_BOUND", 70.0),
@@ -73,6 +73,10 @@ def load_config():
             loaded = json.load(f)
         merged = DEFAULT_CONFIG.copy()
         merged.update(loaded)
+        fid = merged.get("furnace_id")
+        if not fid:
+            fid = str(merged.get("furnace_number", DEFAULT_CONFIG["furnace_number"]))
+        merged["furnace_id"] = str(fid).strip()
         return merged
     except Exception:
         return DEFAULT_CONFIG.copy()
@@ -103,10 +107,10 @@ def list_profile_options():
         try:
             with open(path, "r", encoding="utf-8") as f:
                 cfg = json.load(f)
-            furnace = cfg.get("furnace_number")
-            if furnace is None:
+            furnace_id = cfg.get("furnace_id") or cfg.get("furnace_number")
+            if furnace_id is None:
                 continue
-            options.append({"label": f"Furnace {int(furnace)}", "value": path.name})
+            options.append({"label": f"Furnace {furnace_id}", "value": path.name})
         except Exception:
             continue
     return options
@@ -129,6 +133,8 @@ def load_profile_file(filename):
         loaded = json.load(f)
     merged = DEFAULT_CONFIG.copy()
     merged.update(loaded)
+    fid = merged.get("furnace_id") or merged.get("furnace_number")
+    merged["furnace_id"] = str(fid if fid is not None else DEFAULT_CONFIG["furnace_id"]).strip()
     return merged
 
 
@@ -136,6 +142,13 @@ def fmt_temp(value):
     """Format a temperature value for display."""
 
     return f"{value:.3f}" if isinstance(value, (int, float)) else "--"
+
+
+def unique_fractional_second(now_dt, last_ts):
+    ts = now_dt.hour * 3600 + now_dt.minute * 60 + now_dt.second + now_dt.microsecond / 1_000_000
+    if last_ts is not None and ts <= last_ts:
+        ts = last_ts + 0.001
+    return ts
 
 
 def simulate_values(count=3):
@@ -152,6 +165,7 @@ def simulate_values(count=3):
         return hardware._simulate(count)
     except Exception:
         import random
+
         return [72.0 + random.uniform(-1.0, 1.0) + i * 2 for i in range(count)]
 
 
@@ -172,6 +186,29 @@ def read_live_temps():
     ]
 
 
+def parse_furnace_id(value):
+    """Return a normalized furnace ID string (allows letters, e.g. '1A')."""
+
+    if value in (None, ""):
+        return str(DEFAULT_CONFIG.get("furnace_id", "1")).strip()
+    return str(value).strip()
+
+
+def furnace_id_to_number(fid):
+    """Extract a numeric furnace index from an ID like '1A' or 'F2B', fallback to 1."""
+    import re
+
+    if fid in (None, ""):
+        return int(DEFAULT_CONFIG.get("furnace_number", 1))
+
+    text = str(fid)
+    matches = re.findall(r"\d+", text)
+    try:
+        return int(matches[0]) if matches else int(DEFAULT_CONFIG.get("furnace_number", 1))
+    except ValueError:
+        return int(DEFAULT_CONFIG.get("furnace_number", 1))
+
+
 def build_live_cfg(furnace, setpoint, lower, upper, y_min, y_max, sampling):
     """Normalize live form values into a dashboard configuration.
 
@@ -179,8 +216,12 @@ def build_live_cfg(furnace, setpoint, lower, upper, y_min, y_max, sampling):
     configured defaults.
     """
 
+    furnace_id = parse_furnace_id(furnace)
+    furnace_num = furnace_id_to_number(furnace_id)
+
     cfg = {
-        "furnace_number": int(furnace) if furnace is not None else DEFAULT_CONFIG["furnace_number"],
+        "furnace_id": furnace_id,
+        "furnace_number": furnace_num,
         "setpoint": float(setpoint) if setpoint is not None else DEFAULT_CONFIG["setpoint"],
         "lower_bound": float(lower) if lower is not None else DEFAULT_CONFIG["lower_bound"],
         "upper_bound": float(upper) if upper is not None else DEFAULT_CONFIG["upper_bound"],
@@ -257,7 +298,6 @@ app.layout = html.Div(
             interval=int(1000 / max(0.1, loaded_cfg.get("sampling_frequency", 1.0))),
             n_intervals=0,
         ),
-
         dbc.Modal(
             [
                 dbc.ModalHeader(dbc.ModalTitle("Save current configuration?")),
@@ -274,7 +314,6 @@ app.layout = html.Div(
             backdrop="static",
             keyboard=False,
         ),
-
         html.Div(
             className="topbar",
             children=[
@@ -299,7 +338,6 @@ app.layout = html.Div(
                 ),
             ],
         ),
-
         html.Div(
             className="ccam-hero",
             children=[
@@ -315,13 +353,11 @@ app.layout = html.Div(
                 )
             ],
         ),
-
         html.Div(
             id="data-mode-banner",
             className="data-mode-banner data-mode-live",
             children="Live hardware data",
         ),
-
         html.Div(
             className="dashboard-grid",
             children=[
@@ -395,21 +431,21 @@ app.layout = html.Div(
                                         html.Div(
                                             className="temp-card",
                                             children=[
-                                                html.Div("Channel 1", className="temp-label"),
+                                                html.Div("Channel 0", className="temp-label"),
                                                 html.Div(id="temp-0", className="temp-value temp-blue", children="--"),
                                             ],
                                         ),
                                         html.Div(
                                             className="temp-card",
                                             children=[
-                                                html.Div("Channel 2", className="temp-label"),
+                                                html.Div("Channel 1", className="temp-label"),
                                                 html.Div(id="temp-1", className="temp-value temp-red", children="--"),
                                             ],
                                         ),
                                         html.Div(
                                             className="temp-card",
                                             children=[
-                                                html.Div("Channel 3", className="temp-label"),
+                                                html.Div("Channel 2", className="temp-label"),
                                                 html.Div(id="temp-2", className="temp-value temp-purple", children="--"),
                                             ],
                                         ),
@@ -474,13 +510,14 @@ app.layout = html.Div(
                             className="panel sidebar-panel",
                             children=[
                                 html.H3("Furnace Profile", className="side-title"),
-                                dbc.Label("Furnace Number", className="field-label"),
+                                dbc.Label("Furnace ID", className="field-label"),
                                 dbc.Input(
                                     id="cfg-furnace",
-                                    type="number",
-                                    value=loaded_cfg.get("furnace_number", DEFAULT_CONFIG["furnace_number"]),
-                                    min=1,
-                                    step=1,
+                                    type="text",
+                                    value=loaded_cfg.get(
+                                        "furnace_id",
+                                        str(loaded_cfg.get("furnace_number", DEFAULT_CONFIG["furnace_number"])),
+                                    ),
                                     className="field-input",
                                 ),
                             ],
@@ -538,7 +575,6 @@ app.layout = html.Div(
                 ),
             ],
         ),
-
         html.Footer(
             className="footer",
             children=[
@@ -583,17 +619,17 @@ def load_selected_profile(profile_filename):
         raise PreventUpdate
 
     cfg = load_profile_file(profile_filename)
-    furnace = cfg.get("furnace_number", DEFAULT_CONFIG["furnace_number"])
+    furnace_id = cfg.get("furnace_id") or cfg.get("furnace_number", DEFAULT_CONFIG["furnace_number"])
 
     return (
-        furnace,
+        str(furnace_id),
         cfg.get("setpoint", DEFAULT_CONFIG["setpoint"]),
         cfg.get("lower_bound", DEFAULT_CONFIG["lower_bound"]),
         cfg.get("upper_bound", DEFAULT_CONFIG["upper_bound"]),
         cfg.get("y_min", DEFAULT_CONFIG["y_min"]),
         cfg.get("y_max", DEFAULT_CONFIG["y_max"]),
         cfg.get("sampling_frequency", DEFAULT_CONFIG["sampling_frequency"]),
-        f"Loaded Furnace {int(furnace)}",
+        f"Loaded Furnace {furnace_id}",
     )
 
 
@@ -678,13 +714,24 @@ def update_temps(n, furnace, setpoint, lower, upper, y_min, y_max, sampling, sto
         f" • {'Simulation' if getattr(hardware, 'simulation_mode', False) else 'Live'}"
     )
 
-    if rec_data and rec_data.get("active") and rec_data.get("filename") and any(v is not None for v in safe_temps):
+    if (
+        rec_data
+        and rec_data.get("active")
+        and rec_data.get("filename")
+        and any(v is not None for v in safe_temps)
+    ):
         filepath = RECORDINGS_DIR / rec_data["filename"]
+        last_ts = rec_data.get("last_ts")
+        ts = unique_fractional_second(now_dt, last_ts)
+        rec_data["last_ts"] = ts
+        hour = int(ts // 3600)
+        minute = int((ts % 3600) // 60)
+        second = ts % 60
         with open(filepath, "a", encoding="utf-8") as f:
             f.write(
-                f"{float(now_dt.hour):.3f}\t"
-                f"{float(now_dt.minute):.3f}\t"
-                f"{(now_dt.second + now_dt.microsecond / 1_000_000):.3f}\t"
+                f"{float(hour):.3f}\t"
+                f"{float(minute):.3f}\t"
+                f"{second:.3f}\t"
                 f"{(safe_temps[0] if safe_temps[0] is not None else 0.0):.3f}\t"
                 f"{(safe_temps[1] if safe_temps[1] is not None else 0.0):.3f}\t"
                 f"{(safe_temps[2] if safe_temps[2] is not None else 0.0):.3f}\t"
@@ -694,6 +741,8 @@ def update_temps(n, furnace, setpoint, lower, upper, y_min, y_max, sampling, sto
     rec_status = "Status: Recording" if rec_data and rec_data.get("active") else "Status: Idle"
     rec_file = f"File: {rec_data.get('filename')}" if rec_data and rec_data.get("filename") else ""
 
+    machine_label = f"Furnace {live_cfg.get('furnace_id', live_cfg.get('furnace_number'))}"
+
     return (
         fmt_temp(safe_temps[0]),
         fmt_temp(safe_temps[1]),
@@ -702,7 +751,7 @@ def update_temps(n, furnace, setpoint, lower, upper, y_min, y_max, sampling, sto
         new_store,
         status_text,
         status_class,
-        f"Furnace {live_cfg['furnace_number']}",
+        machine_label,
         now,
         footer_info,
         banner_text,
@@ -737,14 +786,17 @@ def handle_recording(start_n, stop_n, furnace, rec_data):
     button = ctx.triggered_id
 
     if button == "btn-start":
+        furnace_id = parse_furnace_id(furnace)
         timestamp = datetime.now().strftime("%y%m%d_%H%M%S")
-        filename = f"TUS_F{int(furnace or 1)}_{timestamp}.txt"
+        safe_id = furnace_id.replace(" ", "").upper()
+        filename = f"TUS_F{safe_id}_{timestamp}.txt"
         filepath = RECORDINGS_DIR / filename
         with open(filepath, "w", encoding="utf-8") as f:
             f.write("# TUS Recording\n")
-            f.write("# Hour\tMinute\tSecond\tChannel1\tChannel2\tChannel3\tReserved\n")
+            f.write("# FurnaceID\tHour\tMinute\tSecond\tChannel1\tChannel2\tChannel3\tReserved\n")
         rec_data["active"] = True
         rec_data["filename"] = filename
+        rec_data["last_ts"] = None
         return True, False, "Status: Recording", f"File: {filename}", rec_data
 
     if button == "btn-stop":
@@ -799,7 +851,7 @@ def prepare_save_as_with_config(n, furnace, setpoint, lower, upper, y_min, y_max
     cfg = build_live_cfg(furnace, setpoint, lower, upper, y_min, y_max, sampling)
     save_config(cfg)
 
-    profile_name = f"furnace_{int(cfg['furnace_number'])}"
+    profile_name = f"furnace_{cfg['furnace_id']}"
     profile_manager.save_profile(profile_name, cfg)
 
     latest = files[0]
@@ -859,7 +911,6 @@ clientside_callback(
     Input("save-file-store", "data"),
     prevent_initial_call=True,
 )
-
 
 if __name__ == "__main__":
     if not hardware.connected:

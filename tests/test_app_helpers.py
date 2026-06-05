@@ -35,6 +35,22 @@ def test_build_live_cfg_resets_invalid_ranges_and_sampling():
     assert cfg["y_max"] == dash_app.DEFAULT_CONFIG["y_max"]
 
 
+def test_build_live_cfg_defaults_non_numeric_furnace():
+    """Invalid furnace values should not crash live dashboard updates."""
+
+    cfg = dash_app.build_live_cfg(
+        furnace="A",
+        setpoint=85,
+        lower=70,
+        upper=90,
+        y_min=50,
+        y_max=100,
+        sampling=1,
+    )
+
+    assert cfg["furnace_number"] == dash_app.DEFAULT_CONFIG["furnace_number"]
+
+
 def test_make_figure_uses_store_data_and_y_axis_range():
     """The chart should reflect stored data and configured y-axis bounds."""
 
