@@ -1,83 +1,42 @@
 import time
 
 try:
-    from mcculw.enums import TempScale
+    import uldaq as ul
 except Exception:
-    class TempScale:
-        """Fallback temperature scale constants when MCC UL is missing."""
-        CELSIUS = "CELSIUS"
+    ul = None
 
 
 class MCCThermocouple:
-    """Interface to an MCC E-TC Ethernet thermocouple device.
-
-    Attributes:
-        connected (bool): Whether the device is currently usable.
-        simulation_mode (bool): Whether reads are simulated.
-        last_error (str | None): Last connection or read error.
-    """
-
     def __init__(self, device_ip=None, device_id=None, board_num=0):
         self.device_ip = device_ip
         self.device_id = device_id
         self.board_num = board_num
         self.connected = False
-        self.ul = None
+        self.device = None
+        self.ai_device = None
         self.last_error = None
         self.simulation_mode = False
         self._last_logged_error = None
         self.ever_had_real_data = False
         self.last_real_data_ts = None
 
-        try:
-            from mcculw import ul
-            self.ul = ul
-        except Exception as e:
-            self.last_error = f"mcculw library unavailable: {e}"
+        if ul is None:
+            self.last_error = "uldaq library unavailable"
             self._log_once(self.last_error)
-            self.ul = None
 
     def _log_once(self, message):
         if message != self._last_logged_error:
             print(message)
             self._last_logged_error = message
 
-    def connect(self):
-        if not self.ul:
-            self.connected = False
-            self.simulation_mode = True
-            self.last_error = "mcculw library not available. Using simulation mode."
-            self._log_once(self.last_error)
-            return False
-
-        try:
-            if self.device_ip:
-                print(f"Device IP: {self.device_ip}")
-            print(f"Board Number: {self.board_num}")
-            print("mcculw import available")
-            print("Assuming device configured in InstaCal / MCC software")
-            self.connected = True
-            self.simulation_mode = False
-            self.last_error = None
-            self._last_logged_error = None
-            return True
-        except Exception as e:
-            self.last_error = f"Could not connect to MCC device: {e}"
-            self._log_once(self.last_error)
-            self.connected = False
-            self.simulation_mode = True
-            return False
-
     def _simulate(self, count):
         try:
             import numpy as np
             noise = np.random.normal(0, 0.5, count)
+            return [72.5 + (2.0 * idx) + noise[idx] for idx in range(count)]
         except Exception:
             import random
-            noise = [random.gauss(0, 0.5) for _ in range(count)]
-
-        base_temps = [72.5 + (2.0 * index) for index in range(count)]
-        return [temp + n for temp, n in zip(base_temps, noise)]
+            return [72.5 + (2.0 * idx) + random.gauss(0, 0.5) for idx in range(count)]
 
     def _mark_real_data(self):
         self.ever_had_real_data = True
@@ -89,11 +48,87 @@ class MCCThermocouple:
             return False
         return (time.time() - self.last_real_data_ts) <= timeout_s
 
+    def connect(self):
+        if ul is None:
+            self.connected = False
+            self.simulation_mode = True
+            self.last_error = "uldaq library not available. Using simulation mode."
+            self._log_once(self.last_error)
+            return False
+
+        try:
+            devices = ul.get_daq_device_inventory(ul.InterfaceType.ETHERNET)
+            if not devices:
+                devices = ul.get_daq_device_inventory(ul.InterfaceType.ANY)
+
+            if not devices:
+                self.connected = False
+                self.simulation_mode = True
+                self.last_error = "No MCC device found."
+                self._log_once(self.last_error)
+                return False
+
+            chosen = None
+            if self.device_ip:
+                for d in devices:
+                    d_text = str(d)
+                    if self.device_ip in d_text:
+                        chosen = d
+                        break
+
+            if chosen is None:
+                chosen = devices[0]
+
+            self.device = ul.DaqDevice(chosen)
+            self.device.connect()
+            self.ai_device = self.device.get_ai_device()
+
+            self.connected = True
+            self.simulation_mode = False
+            self.last_error = None
+            self._last_logged_error = None
+            print(f"Connected to device: {chosen}")
+            return True
+
+        except Exception as e:
+            self.last_error = f"Could not connect to MCC device: {e}"
+            self._log_once(self.last_error)
+            self.connected = False
+            self.simulation_mode = True
+            return False
+
+    def disconnect(self):
+        try:
+            if self.device is not None:
+                self.device.disconnect()
+                self.device.release()
+        except Exception:
+            pass
+
+        self.device = None
+        self.ai_device = None
+        self.connected = False
+        self.simulation_mode = True
+        self._log_once("Disconnected from MCC device")
+        return True
+
+    def _read_hardware_channel(self, ch):
+        if self.ai_device is None:
+            raise RuntimeError("AI device not available")
+
+        return float(
+            self.ai_device.a_in(
+                ch,
+                ul.AiInputMode.SINGLE_ENDED,
+                ul.Range.BIP10VOLTS
+            )
+        )
+
     def read_channels(self, channels=None):
         if channels is None:
             channels = [0, 1, 2, 3, 4, 5, 6, 7]
 
-        if not self.connected or not self.ul:
+        if not self.connected or not self.device:
             self.simulation_mode = True
             self.last_error = "Hardware/library unavailable; using simulated data."
             self._log_once(self.last_error)
@@ -106,8 +141,8 @@ class MCCThermocouple:
 
             for ch in channels:
                 try:
-                    temp = self.ul.t_in(self.board_num, ch, TempScale.CELSIUS)
-                    readings.append(float(temp))
+                    value = self._read_hardware_channel(ch)
+                    readings.append(float(value))
                 except Exception as ch_error:
                     readings.append(None)
                     failures += 1
@@ -160,14 +195,6 @@ class MCCThermocouple:
     def read_all_channels(self):
         return self.read_channels(channels=[0, 1, 2, 3, 4, 5, 6, 7])
 
-    def disconnect(self):
-        if not self.connected:
-            return True
-        self.connected = False
-        self.simulation_mode = True
-        self._log_once("Disconnected from MCC E-TC device")
-        return True
-
     def get_device_info(self):
         return {
             "device_id": self.device_id,
@@ -180,6 +207,7 @@ class MCCThermocouple:
             "last_error": self.last_error,
             "ever_had_real_data": self.ever_had_real_data,
             "last_real_data_ts": self.last_real_data_ts,
+            "backend": "uldaq",
         }
 
     def test_read(self):
